@@ -1,0 +1,113 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Transform: AWS::Serverless-2016-10-31
+
+Globals:
+  Function:
+    Timeout: 60
+
+Resources:
+  PostImageApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      BinaryMediaTypes:
+        - multipart~1form-data
+
+  ResizeImageFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: ResizeImage
+      CodeUri: .
+      Handler: app.lambdaHandler
+      Runtime: nodejs12.x
+      Role: AppRole
+      Tracing: Active
+      Environment:
+        Variables:
+          S3_BUCKET: bucket-images-resizer
+      Events:
+        HttpPost:
+          Type: Api
+          Properties:
+            RestApiId: !Ref "PostImageApi"
+            Path: /image
+            Method: POST
+
+  ResizeImageFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    DependsOn: [ ResizeImageFunction ]
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${ResizeImageFunction}
+      RetentionInDays: 7
+
+  BucketApp:
+    Type: AWS::S3::Bucket
+    Properties:
+      AccessControl: PublicRead
+
+  ImageBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref BucketApp
+      PolicyDocument:
+        Statement:
+          - Action: s3:GetObject
+            Effect: Allow
+            Principal: "*"
+            Resource: !Sub arn:aws:s3:::${BucketApp}/*
+
+  # Permissions
+  AllowS3ToCallLambdaPermission:
+    Type: AWS::Lambda::Permission
+    DependsOn:
+    - PostImageApi
+    - ResizeImageFunction
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !Ref ResizeImageFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !GetAtt PostImageApi.Arn
+
+  AppRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: S3_ACL
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:*
+                Resource:
+                  - !Join ['', [!GetAtt BucketApp.Arn, "/*"]]
+              - Effect: Allow
+                Action:
+                  - s3:*
+                Resource:
+                  - !GetAtt BucketApp.Arn
+        - PolicyName: StatesExecutionPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "lambda:InvokeFunction"
+                  - "cloudwatch:*"
+                  - "logs:*"
+                Resource: "*"
+
+Outputs:
+  Description: "Resize Image Function ARN"
+  Value: !GetAtt BucketApp.Arn
