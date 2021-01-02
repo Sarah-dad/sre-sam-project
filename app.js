@@ -45,6 +45,7 @@ exports.lambdaHandler = async (event, context) => {
                 s3_key_image = s3_key;
             }
             console.log("Sending image", s3_key_image , "to bucket : ", S3_BUCKET);
+            console.log(s3_key_image , '&' , s3_key);
             await send_image(crop_img_buffer,S3_BUCKET,s3_key_image);
         })
 
